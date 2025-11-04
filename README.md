@@ -6,7 +6,7 @@
 > ✅ **Tech Stack**
 > - **Backend**: Spring Boot (Java 21), Spring MVC, Spring Data JPA, Spring Validation, (옵션) Spring Security  
 > - **Build/Tools**: Gradle, Docker  
-> - **Infra(선택)**: AWS ECS/RDS/CloudWatch, GitHub Actions  
+> - **Infra**: AWS ECS/RDS/CloudWatch, GitHub Actions  
 > - **Transit API**: SK 대중교통 API(경로/정류장/도착)
 
 ---
@@ -45,33 +45,35 @@
 
 ### 경로 탐색
 ```
-GET /api/v1/routes?from=lat,lng&to=lat,lng&mode=mixed|bus|subway
-응답: { itineraries: [ { legs: [...], durationSec, transfers, warnings: [] } ] }
+POST /api/transit/plan : 경로 생성(출발/도착 좌표 입력 → 표준화된 Itinerary 반환 + tripId)
+
+POST /api/transit/trips/{tripId}/progress : 진행상황 업링크(iOS 위치/센서) → 현재 구간/다음 안내 반환
+
+GET /api/transit/trips/{tripId} : 현재 Trip 상태 조회(디버깅/복구용)
+
+POST /api/transit/trips/{tripId}/event : (옵션) 승/하차/환승 확정 이벤트 업링크
+
+GET /api/transit/stops/nearby : 반경 내 정류장/역 검색(보조
 ```
 
 ### 주변 정류장/역
 ```
-GET /api/v1/stops/nearby?lat=..&lng=..&radius=300&types=bus,subway
-응답: { stops: [ { id, name, type, distance, lat, lng } ] }
+
 ```
 
 ### 실시간 도착
 ```
-GET /api/v1/arrivals?stopId=...
-응답: { arrivals: [ { routeNo, headsign, etaSec, platform? } ] }
+
 ```
 
 ### 승·하차 이벤트(센서 업링크)
 ```
-POST /api/v1/trip/events
-Body: { userId, tripId, timestamp, loc:{lat,lng,acc}, imu:{ax,ay,az,gx,gy,gz}?, wifi:[BSSID...]?, beacon:[uuid,major,minor]? }
-응답: { tripState: BOARDING|ONBOARD|ALIGHTED|UNKNOWN, likelihood: 0.0..1.0 }
+
 ```
 
 ### 여정 상태/알림
 ```
-GET /api/v1/trip/state?tripId=...
-응답: { currentLeg, remainingStops, nextAction, alerts: [] }
+
 ```
 
 > 문서화: `/docs` (springdoc-openapi), 상태확인: `/actuator/health`
@@ -95,25 +97,22 @@ smartcane-transit/
       │  │  ├─ config/
       │  │  │  ├─ WebConfig.java
       │  │  │  ├─ OpenApiConfig.java
-      │  │  │  └─ SecurityConfig.java (옵션)
+      │  │  │  ├─ SKTransitProperties.java
+      │  │  │  └─ SecurityConfig.java 
       │  │  ├─ controller/
       │  │  │  ├─ RouteController.java
       │  │  │  ├─ StopController.java
-      │  │  │  └─ TripController.java
+      │  │  │  └─ TransitController.java
       │  │  ├─ service/
       │  │  │  ├─ RouteService.java
       │  │  │  ├─ StopService.java
       │  │  │  └─ TripService.java
-      │  │  ├─ domain/
-      │  │  │  ├─ entity/ (Trip, TripEvent, Stop, Station ...)
-      │  │  │  └─ repo/ (...Repository)
-      │  │  ├─ client/
-      │  │  │  └─ SkTransitClient.java
+      │  │  ├─ entity/
+      │  │  ├─ repository/
       │  │  ├─ dto/
-      │  │  │  ├─ RouteDto.java, StopDto.java, ArrivalDto.java
-      │  │  │  └─ TripDtos.java
-      │  │  └─ util/
-      │  │     └─ GeoFence.java, SensorFusion.java
+      │  │  │  ├─ request/
+      │  │  │  └─ response/
+      │  │  ├─ exception/
       │  └─ resources/
       │     ├─ application.yml
       │     ├─ application-dev.yml
@@ -150,26 +149,31 @@ docker run -p 8080:8080 -e SK_API_KEY=xxxxx smartcane/transit:dev
 ```yaml
 # application.yml
 server:
-  port: 8080
+  port: 8084
+
 spring:
   application:
     name: smartcane-transit
-  jackson:
-    default-property-inclusion: non_null
-  mvc:
-    pathmatch:
-      matching-strategy: ant_path_matcher
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
 
-transit:
-  sk:
-    base-url: https://api.sktransit.example
-    api-key: ${SK_API_KEY}
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics
+logging:
+  level:
+    root: INFO
+    org.springframework.web: INFO
+    com.smartcane.transit: DEBUG
+sk:
+  transit:
+    base-url: https://apis.openapi.sk.com/transit/routes/ # 실제 엔드포인트 넣기
+    api-key: ${TRANSIT_API_KEY:change-me}    # 환경변수/시크릿로 대체 권장
 ```
 
 ---
@@ -183,7 +187,7 @@ management:
 ---
 
 ## 🧩 해결해야 할 과제(이슈 트래킹)
-1. **SK API가 버스만 제공되는 구간 보완**: 지하철 포함 혼합 경로 탐색 구현(대안 데이터/SDK 연동)  
+1. **SK API 보완**: 최적경로로 추적  
 2. **지하철 안내 시 GPS 수신 한계**: 지하·터널 구간에서 IMU + Wi‑Fi/Beacon + 지오펜스 기반 보정(Dead‑Reckoning)  
 3. **승차 여부 기술 판별**: 센서 융합 + 정류장/역 이벤트 매칭으로 ‘탑승/하차/환승’ 상태 신뢰도 상향  
 4. **ETA 신뢰도**: 혼잡/돌발 상황 반영(실시간 데이터 가중/보정)  
@@ -195,7 +199,7 @@ management:
 ---
 
 ## 🛣 로드맵
-- [ ] **MVP**: 버스 경로 탐색 + 주변 정류장 + 실시간 도착 + 기초 승·하차 추정  
+- [ ] **MVP**: 도착 경로 탐색 + 주변 정류장 또는 지하철 + 실시간 도착 + 기초 승·하차 추정  
 - [ ] **혼합 경로**: 지하철 포함 경로 탐색/환승 권고  
 - [ ] **지하 보정**: GPS Drop 대응 센서 융합 고도화  
 - [ ] **iOS 앱 연동**: 센서 업링크/알림 UX, 접근성 가이드라인(VoiceOver)  

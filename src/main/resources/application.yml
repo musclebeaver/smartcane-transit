@@ -1,7 +1,36 @@
 server:
   port: 8084
 
+spring:
+  application:
+    name: smartcane-transit
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+logging:
+  level:
+    root: INFO
+    org.springframework.web: INFO
+    com.smartcane.transit: DEBUG
 sk:
   transit:
     base-url: https://apis.openapi.sk.com/transit/routes/ # 실제 엔드포인트 넣기
     api-key: ${TRANSIT_API_KEY:change-me}    # 환경변수/시크릿로 대체 권장
+
+smartcane:
+  transit:
+    arriveRadiusWalkM: 14
+    arriveRadiusTransitM: 22
+    lookAheadWalkM: 25
+    geofenceOffRouteM: 28
+    medianWindow: 5
+    minSpeedMps: 0.3
+    arrivalHysteresisN: 2
