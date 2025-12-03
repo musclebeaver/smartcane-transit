@@ -10,6 +10,6 @@ public record ProgressUpdateRequest(
         Double speedMps,          // 선택
         Long timestampEpochMs,    // 선택
         Double headingDeg,        // 선택
-        Double arriveRadiusM,      // 선택: 기본 20~25m 추천
-        Double lookAheadM         // 선택: ArrivalCheckRequest.lookAheadM 와 매핑(예: 25m)
+        Double arriveRadiusM,     // 선택: 기본 20~25m 추천
+        Double lookAheadM         // 선택: ArrivalCheckRequest.lookAheadM 와 매핑
 ) {}

@@ -4,12 +4,16 @@ package com.smartcane.transit.service;
 import com.smartcane.transit.dto.response.SkTransitRootDto;
 import com.smartcane.transit.dto.request.RoutePlanRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
 
+
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RouteService {
@@ -27,7 +31,11 @@ public class RouteService {
                 .uri("/transit/routes/")
                 .bodyValue(query)
                 .retrieve()
-                .bodyToMono(SkTransitRootDto.class);
+                .bodyToMono(SkTransitRootDto.class)
+                .doOnError(WebClientResponseException.class, ex -> {
+                    log.error("SK Transit API 오류: status={}, body={}",
+                            ex.getStatusCode(), ex.getResponseBodyAsString());
+                });
     }
 
     /**

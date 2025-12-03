@@ -24,7 +24,10 @@ public class GuidanceProperties {
     private double minSpeedMps         = 0.3;   // 속도 게이팅 임계(정지시 튐 억제)
 
     // --- 히스테리시스(깜빡임 방지) ---
-    private int    arrivalHysteresisN  = 2;     // 연속 N회 조건 만족 시 도착 인정 (2~3)
+    private int    arrivalHysteresisN  = 1;     // 연속 N회 조건 만족 시 도착 인정 (2~3)
+
+    // description 안내를 언제부터 쓸지 (m)
+    private double descriptionTriggerM = 40.0;
 
     // (선택) 업링크 권고: 클라에서 1초/3m 이상 변화 시 업링크
 }

@@ -1,10 +1,13 @@
 package com.smartcane.transit.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 /**
- * /api/transit/plan 응답: 서버가 tripId를 발급하고
- * MetaData(경로 결과)와 함께 내려준다.
+ * /api/transit/plan 응답 DTO
+ * - tripId: 서버가 발급한 세션 ID
+ * - metaData: SK 길찾기 응답의 MetaData (필터링된 itineraries 포함)
  */
 public record RoutePlanInitResponse(
-        String tripId,
-        SkTransitRootDto.MetaDataDto metaData
+        @JsonProperty("tripId") String tripId,
+        @JsonProperty("metaData") SkTransitRootDto.MetaDataDto metaData
 ) {}

@@ -45,7 +45,8 @@ public class TransitArrivalService {
                 null,
                 null,
                 null,
-                null
+                null,             // stopsLeft
+                false             // offRoute (일단 false, 나중에 폴리라인 이탈 계산해서 true/false)
         );
     }
 
@@ -163,7 +164,8 @@ public class TransitArrivalService {
                 nextLegIndex,
                 null,             // nextStepIndex (대중교통은 step 없음)
                 currentStationIndex,
-                stopsLeft
+                stopsLeft,             // stopsLeft
+                false             // offRoute (일단 false, 나중에 폴리라인 이탈 계산해서 true/false)
         );
     }
 }

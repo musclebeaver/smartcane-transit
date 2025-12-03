@@ -11,5 +11,6 @@ public record ArrivalCheckResponse(
 
         // 👇 새로 추가
         Integer currentStationIndex,  // 현재 위치에서 가장 가까운 정류장 index
-        Integer stopsLeft             // 도착 정류장까지 남은 정거장 수
+        Integer stopsLeft,             // 도착 정류장까지 남은 정거장 수
+        boolean offRoute           // 경로 이탈 여부
 ) {}
