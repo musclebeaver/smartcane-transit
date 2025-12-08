@@ -39,14 +39,15 @@ public class TransitArrivalService {
     private static ArrivalCheckResponse notFound() {
         return new ArrivalCheckResponse(
                 false,
-                Double.NaN,
+                9999.0,
                 "경로를 찾을 수 없습니다.",
                 null,
                 null,
                 null,
                 null,
-                null,             // stopsLeft
-                false             // offRoute (일단 false, 나중에 폴리라인 이탈 계산해서 true/false)
+                null,
+                null,
+                false
         );
     }
 
@@ -165,6 +166,7 @@ public class TransitArrivalService {
                 null,             // nextStepIndex (대중교통은 step 없음)
                 currentStationIndex,
                 stopsLeft,             // stopsLeft
+                null,
                 false             // offRoute (일단 false, 나중에 폴리라인 이탈 계산해서 true/false)
         );
     }

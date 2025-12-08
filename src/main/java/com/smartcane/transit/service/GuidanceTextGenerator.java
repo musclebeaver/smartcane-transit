@@ -143,6 +143,9 @@ public class GuidanceTextGenerator {
 
             // 2-2) 같은 step 안에서는 "다음 안내까지 ~m"만 반복
             if (nextStepM != null) {
+                if (nextStepM <= 0) {
+                    return "잠시 후 다음 안내가 있습니다. 속도를 줄이고 주변을 잘 살펴 주세요.";
+                }
                 return String.format(
                         "다음 안내까지 약 %d미터 남았습니다. 안내된 경로를 따라 계속 이동해 주세요.",
                         nextStepM

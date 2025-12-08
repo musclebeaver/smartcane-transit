@@ -20,8 +20,9 @@ import java.util.List;
  *    - 마지막 step이면: leg.end 좌표까지 거리
  *    → "NEXT_STEP:123.45" 형식으로 nextInstruction 에 담는다.
  * 4) remainingMeters 는 leg.end 까지 거리(목적지까지 거리)
- * 5) nextStepIndex 는 "현재 스냅된 step 인덱스"로 항상 세팅
+ * 5) currentStepIndex 는 "현재 스냅된 step 인덱스"로 항상 세팅
  *    → ProgressCoordinator 가 TripState.stepIndex 를 매번 업데이트 가능
+ * 6) nextStepIndex 는 WALK 에서는 사용하지 않으므로 null 로 내려준다.
  */
 @Service
 @Slf4j
@@ -40,6 +41,7 @@ public class WalkArrivalService {
                 false,
                 9999.0,
                 "경로를 찾을 수 없습니다.",
+                null,
                 null,
                 null,
                 null,
@@ -72,7 +74,7 @@ public class WalkArrivalService {
         int nearestStepIdx = -1;
         double bestStepDist = Double.POSITIVE_INFINITY;
 
-        // 3) 현재 위치에서 가장 가까운 step 인덱스 찾기
+        // 3) 현재 위치에서 가장 가까운 step 인덱스 찾기 (라인 전체에서 최소 거리)
         for (int i = 0; i < steps.size(); i++) {
             SkTransitRootDto.WalkStepDto step = steps.get(i);
             var pts = GeoUtils.parseLineString(step.linestring()); // [lat, lon]
@@ -150,8 +152,8 @@ public class WalkArrivalService {
         // 7) 다음 leg 인덱스 (목적지 도착 시에만)
         Integer nextLegIndex = arrived ? (req.legIndex() + 1) : null;
 
-        // 8) nextStepIndex 는 "현재 스냅된 step 인덱스"로 항상 세팅
-        Integer nextStepIndex = (nearestStepIdx >= 0) ? nearestStepIdx : null;
+        // 8) WALK 에서는 currentStepIndex 만 사용, nextStepIndex 는 null
+        Integer currentStepIndex = (nearestStepIdx >= 0) ? nearestStepIdx : null;
 
         if (log.isDebugEnabled()) {
             log.debug(
@@ -162,13 +164,14 @@ public class WalkArrivalService {
 
         return new ArrivalCheckResponse(
                 arrived,
-                remaining,        // 목적지(leg 끝)까지 거리
-                currentInst,      // 현재 step 설명
-                nextInstruction,  // "NEXT_STEP:123.45"
+                remaining,          // 목적지(leg 끝)까지 거리
+                currentInst,        // 현재 step 설명
+                nextInstruction,    // "NEXT_STEP:123.45"
                 nextLegIndex,
-                nextStepIndex,    // ← 이게 TripState.stepIndex 로 들어감
-                null,
-                null,
+                null,               // nextStepIndex (WALK에서는 사용 안 함)
+                currentStepIndex,   // 👈 현재 스냅된 step 인덱스
+                null,               // currentStationIndex (transit 전용)
+                null,               // stopsLeft (transit 전용)
                 offRoute
         );
     }
@@ -204,12 +207,13 @@ public class WalkArrivalService {
         return new ArrivalCheckResponse(
                 arrived,
                 remaining,
-                null,
-                null,
+                null,   // currentInstruction
+                null,   // nextInstruction
                 nextLegIndex,
-                null,
-                null,
-                null,
+                null,   // nextStepIndex
+                null,   // currentStepIndex
+                null,   // currentStationIndex
+                null,   // stopsLeft
                 false
         );
     }

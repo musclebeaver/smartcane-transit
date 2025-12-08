@@ -202,6 +202,11 @@ public class ProgressCoordinator {
                 ? walkArrivalService.evaluate(itinerary, areq)
                 : transitArrivalService.evaluate(itinerary, areq);
 
+        // 👇 WALK 일 때는 현재 스텝 인덱스를 매번 TripState에 반영
+        if (isWalk && ares.currentStepIndex() != null) {
+            state.setStepIndex(ares.currentStepIndex());
+        }
+
         // 7-1) remainingMeters NaN/∞/음수 방어 + 디버그용 로그
         double remRaw = ares.remainingMeters();
         double remSafe;
@@ -238,8 +243,9 @@ public class ProgressCoordinator {
         Integer nextLeg = arrivedStable ? ares.nextLegIndex() : null;
         Integer nextStep = arrivedStable ? ares.nextStepIndex() : null;
 
-        // step 인덱스 전이 (도착이 안정적으로 확인된 후 반영)
-        if (nextStep != null) {
+        // step 인덱스 전이 (히스테리시스 이후) — 주로 대중교통용
+        // WALK 에서는 위에서 currentStepIndex 로 이미 매번 업데이트하므로 여기서는 건드리지 않는다.
+        if (!isWalk && nextStep != null) {
             state.setStepIndex(nextStep);
         }
 
@@ -275,7 +281,7 @@ public class ProgressCoordinator {
         // 11) 안내 문구 생성
         // - WalkArrivalService:
         //   · currentInstruction = 현재 step.description
-        //   · nextInstruction = "NEXT_STEP:123" 형식 (step 끝까지 남은 거리)
+        //   · nextInstruction = "NEXT_STEP:123" 형식 (다음 안내 지점까지 남은 거리)
         //   → GuidanceTextGenerator.from(...) 에서 이를 파싱해서
         //     "다음 안내까지 약 123미터 남았습니다." 등으로 조합
         String tts = guidanceTextGenerator.from(ares, state, itinerary, currentLeg);
