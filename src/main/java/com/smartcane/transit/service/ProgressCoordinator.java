@@ -9,6 +9,7 @@ import com.smartcane.transit.dto.response.GuidanceResponse;
 import com.smartcane.transit.dto.response.SkTransitRootDto;
 import com.smartcane.transit.service.arrival.TransitArrivalService;
 import com.smartcane.transit.service.arrival.WalkArrivalService;
+import com.smartcane.transit.util.GeoUtils; // <<<<<<<< 1. GeoUtils Import 추가
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -95,7 +96,7 @@ public class ProgressCoordinator {
 
     /**
      * iOS 진행 업링크 처리:
-     * - Envelope(metaData, progress) 수신 → 상태 로드 → 도착판정 → 상태전이 → TTS → 응답
+     * - Envelope(metaData, progress) 수신 → 상태 로드 → 도착판정 → 상태전이 → TTS 생성 → 응답
      */
     public GuidanceResponse updateProgress(String tripId, ProgressUpdateEnvelope envelope) {
 
@@ -249,25 +250,77 @@ public class ProgressCoordinator {
             state.setStepIndex(nextStep);
         }
 
-        // leg 인덱스 전이 (BUS / SUBWAY / 마지막 WALK step 이후)
+        // leg 인덱스 전이
         if (nextLeg != null) {
             int bounded = Math.min(nextLeg, Math.max(0, itinerary.legs().size() - 1));
             state.setLegIndex(bounded);
+
+            // 1️⃣ 바뀐 Leg가 어떤 모드인지 확인
+            SkTransitRootDto.LegDto newLeg = itinerary.legs().get(bounded);
+            String newMode = (newLeg.mode() != null) ? newLeg.mode() : "WALK";
+
+            // 2️⃣ 대중교통이면 "WAITING_TRANSIT", 도보면 "WALKING"으로 상태 변경
+            if ("BUS".equals(newMode) || "SUBWAY".equals(newMode)) {
+                state.setPhase(TripState.PHASE_WAITING_TRANSIT);
+                log.info("[StateChange] 보행 종료 -> 대중교통 대기 상태로 전환 (WAITING_TRANSIT)");
+            } else {
+                state.setPhase(TripState.PHASE_WALKING);
+            }
 
             // leg 가 바뀐 경우, 새 leg 의 초기 stepIndex 재계산
             Integer initStep = computeInitialStepIndex(meta, state.getItineraryIndex(), bounded);
             state.setStepIndex(initStep);
         }
+        // --------------------------------------------------------------------------------------
+        // 2. [신규 로직] 8-1) 자동 탑승(ONBOARD) 감지 로직 (WAITING_TRANSIT -> ONBOARD)
+        // --------------------------------------------------------------------------------------
+        String currentPhase = state.getPhase();
+        // 대중교통 구간이며, 현재 '대기 중'일 때만 체크
+        if (!isWalk && TripState.PHASE_WAITING_TRANSIT.equals(currentPhase)) {
+
+            // 1. 속도 체크: 최소 속도 이상으로 이동하는가? (3.0 m/s = 시속 약 10.8km 기준)
+            boolean isMovingFast = (p.speedMps() != null && p.speedMps() > 3.0);
+
+            // 2. 정류장 이탈 체크: 정류장과의 거리가 충분히 멀어졌는지? (30m 기준)
+            boolean isLeftStop = false;
+            double distFromStart = 0.0;
+
+            // 출발 정류장 좌표가 있을 경우에만 거리 계산 시도
+            if (currentLeg.start() != null && currentLeg.start().lat() != null && currentLeg.start().lon() != null) {
+                // ✅ [수정됨] PlaceDto의 lat/lon은 이미 Double이므로 parseDouble 불필요
+                double startLat = currentLeg.start().lat();
+                double startLon = currentLeg.start().lon();
+
+                // 현재 중앙값 좌표와 출발 정류장 간 Haversine 거리 계산 (GeoUtils)
+                distFromStart = GeoUtils.haversine(
+                        latMed, lonMed, startLat, startLon
+                );
+
+                isLeftStop = (distFromStart > 30.0); // 30m 기준
+            }
+
+            // 3. 탑승 조건 만족 시 상태 전환
+            if (isMovingFast && isLeftStop) {
+                state.setPhase(TripState.PHASE_ONBOARD);
+                state.setArrivalStreak(0); // 탑승했으므로 도착 스트릭 초기화
+                log.info("[StateChange] 대기 종료 -> 탑승(ONBOARD) 자동 감지! (Speed: {}m/s, Distance: {}m)",
+                        p.speedMps(), distFromStart);
+            }
+        }
+        // --------------------------------------------------------------------------------------
+        // [신규 로직 끝]
+        // --------------------------------------------------------------------------------------
 
         // 9) phase 업데이트 (이벤트를 존중하는 방향)
         if (isWalk) {
             state.setPhase(TripState.PHASE_WALKING);
         } else {
+            // 이 블록은 WAITING_TRANSIT/ONBOARD 등으로 이미 설정된 경우를 덮어쓰지 않게 보호됨.
             String phase = state.getPhase();
             if (phase == null || phase.isBlank()) {
                 state.setPhase(TripState.PHASE_ONBOARD);
             }
-            // WAITING_TRANSIT / TRANSFER / ONBOARD 등은 이벤트에서 온 값을 그대로 둠
+            // WAITING_TRANSIT / TRANSFER / ONBOARD 등은 이벤트나 위 로직에서 온 값을 그대로 둠
         }
 
         // 10) 최근 업링크 시각/좌표 업데이트
@@ -279,11 +332,6 @@ public class ProgressCoordinator {
         tripStore.save(tripId, state);
 
         // 11) 안내 문구 생성
-        // - WalkArrivalService:
-        //   · currentInstruction = 현재 step.description
-        //   · nextInstruction = "NEXT_STEP:123" 형식 (다음 안내 지점까지 남은 거리)
-        //   → GuidanceTextGenerator.from(...) 에서 이를 파싱해서
-        //     "다음 안내까지 약 123미터 남았습니다." 등으로 조합
         String tts = guidanceTextGenerator.from(ares, state, itinerary, currentLeg);
 
         // distanceToTargetM 은 클라이언트용 안전 값(remSafe) 그대로 사용 (목적지까지 남은 거리)

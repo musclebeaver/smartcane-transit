@@ -36,6 +36,12 @@ vworld:
   api:
     key: 689FD791-23B2-38BD-86E8-04B77A9B17AF
 
+
+public-data:
+  bus:
+    base-url: http://apis.data.go.kr/1613000/ArvlInfoInqireService
+    service-key: ${PUBLIC_DATA_KEY:your-decoding-key-here} # 환경변수 권장
+
 smartcane:
   transit:
     arriveRadiusWalkM: 14

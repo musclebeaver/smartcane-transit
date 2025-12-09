@@ -167,7 +167,16 @@ public class GuidanceTextGenerator {
                     ? String.format("%s에서 %s 방향 버스 구간입니다. ", startName, endName)
                     : "버스 구간입니다. ";
 
-            if (stopsLeft != null) {
+// ✅ [수정 포인트] Phase가 무엇인지 먼저 판단합니다.
+
+            // 1️⃣ [대기 중] - 아직 안 탔는데 "15정거장 남음"이라고 하면 어색하니까요.
+            if (TripState.PHASE_WAITING_TRANSIT.equals(phase)) {
+                return segment + "정류장에서 잠시 기다려 주세요. 버스가 도착하면 안내해 드리겠습니다.";
+                // (여기에 아까 이야기한 실시간 버스 도착 정보 멘트를 붙일 수도 있습니다)
+            }
+
+            // 2️⃣ [탑승 중] - 이때 비로소 남은 정거장을 안내합니다.
+            if (TripState.PHASE_ONBOARD.equals(phase) && stopsLeft != null) {
                 if (stopsLeft <= 0) {
                     return segment + "곧 하차 정류장입니다. 주변 안내 방송을 확인하시고 내릴 준비를 해 주세요.";
                 } else if (stopsLeft == 1) {
@@ -185,13 +194,16 @@ public class GuidanceTextGenerator {
                 }
             }
 
+            // 3️⃣ [그 외 상태] (환승, 도착, 혹은 GPS가 튀어서 stopsLeft를 못 구했을 때의 안전장치)
             return switch (phase) {
-                case "ONBOARD" ->
+                case TripState.PHASE_ONBOARD -> // stopsLeft가 null일 때 여기로 옴
                         segment + "버스에 탑승 중입니다. 하차 정류장 근처에서 다시 안내해 드리겠습니다.";
-                case "TRANSFER" ->
+                case TripState.PHASE_TRANSFER ->
                         "환승 버스를 기다리는 구간입니다. 정류장 근처에서 버스를 기다려 주세요.";
+                case TripState.PHASE_ARRIVED ->
+                        "목적지에 도착했습니다. 하차 후 주변을 확인해 주세요.";
                 default ->
-                        segment + "정류장에서 버스를 기다려 주세요. 도착 후 다시 안내해 드리겠습니다.";
+                        segment + "경로를 따라 이동해 주세요.";
             };
         }
 
