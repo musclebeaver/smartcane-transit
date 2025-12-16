@@ -9,10 +9,14 @@ import com.smartcane.transit.dto.response.GuidanceResponse;
 import com.smartcane.transit.dto.response.SkTransitRootDto;
 import com.smartcane.transit.service.arrival.TransitArrivalService;
 import com.smartcane.transit.service.arrival.WalkArrivalService;
-import com.smartcane.transit.util.GeoUtils; // ✅ 거리 계산용 유틸 Import 확인
+import com.smartcane.transit.util.GeoUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+
+// 추가된 서비스 Import
+import com.smartcane.transit.service.BusStationService.PublicStationInfo;
+import com.smartcane.transit.service.RealTimeBusService.BusArrivalInfo;
 
 /**
  * 진행 업데이트의 오케스트레이션 레이어.
@@ -30,6 +34,10 @@ public class ProgressCoordinator {
     private final WalkArrivalService walkArrivalService;
     private final TransitArrivalService transitArrivalService;
     private final GuidanceProperties props;
+
+    // ✅ [신규] 실시간 정보 조회를 위한 서비스 주입
+    private final BusStationService busStationService;
+    private final RealTimeBusService realTimeBusService;
 
     /** 보행 구간 판정(테스트/디버깅용 공개) */
     public ArrivalCheckResponse checkWalkStep(SkTransitRootDto.ItineraryDto itin,
@@ -136,7 +144,8 @@ public class ProgressCoordinator {
             tripStore.save(tripId, state);
         }
 
-        // 3) 속도 게이팅 및 중앙값 필터링 (안정적인 좌표 보정용 - 상태 저장 및 표시에 사용)
+        // 3) 속도 게이팅: 너무 느리면(정지/튐) 샘플 반영을 보수적으로
+        // (상태 저장 및 노이즈 필터링용으로는 중앙값을 계속 사용)
         if (p.speedMps() != null && p.speedMps() < props.getMinSpeedMps()) {
             pushWithCap(state.getLatBuf(), p.lat(), props.getMedianWindow());
             pushWithCap(state.getLonBuf(), p.lon(), props.getMedianWindow());
@@ -164,12 +173,12 @@ public class ProgressCoordinator {
         }
         SkTransitRootDto.LegDto currentLeg = itinerary.legs().get(state.getLegIndex());
 
-        // 5) 모드별 파라미터 선택
+        // 5) 모드별 파라미터 선택 (문자열 기반: "WALK" / "BUS" / "SUBWAY")
         String modeRaw = currentLeg.mode() != null ? currentLeg.mode() : "WALK";
         String mode = modeRaw.toUpperCase();
         boolean isWalk = "WALK".equals(mode);
 
-        // WALK leg 이고 stepIndex 가 비어 있으면 0으로 초기화
+        // WALK leg 이고 stepIndex 가 비어 있으면 0으로 초기화 (steps 존재 시)
         if (isWalk && state.getStepIndex() == null) {
             if (currentLeg.steps() != null && !currentLeg.steps().isEmpty()) {
                 state.setStepIndex(0);
@@ -180,6 +189,7 @@ public class ProgressCoordinator {
         double arriveRadius = isWalk ? props.getArriveRadiusWalkM() : props.getArriveRadiusTransitM();
         Double lookAhead = isWalk ? props.getLookAheadWalkM() : null;
 
+        // 클라이언트가 보낸 값 우선
         if (p.arriveRadiusM() != null) {
             arriveRadius = p.arriveRadiusM();
         }
@@ -187,11 +197,10 @@ public class ProgressCoordinator {
             lookAhead = p.lookAheadM();
         }
 
-        // 6) ArrivalCheckRequest 생성 (★ 하이브리드 적용: 실시간 좌표 사용 ★)
-        // 도착 판정에는 중앙값(latMed)보다 실시간 좌표(p.lat)를 사용하여
-        // 버스 출발 시 정류장 이탈이나 도착을 즉각적으로 감지하도록 함.
+        // 6) ArrivalCheckRequest 생성 (★ 하이브리드 방식 적용 ★)
+        // 도착 판정의 민첩성을 위해 보정된 좌표(latMed) 대신 실시간 좌표(p.lat) 사용
         ArrivalCheckRequest areq = new ArrivalCheckRequest(
-                p.lat(), p.lon(),  // 👈 latMed, lonMed 대신 Raw 좌표 사용
+                p.lat(), p.lon(),
                 state.getItineraryIndex(), state.getLegIndex(),
                 state.getStepIndex(),
                 arriveRadius,
@@ -203,12 +212,15 @@ public class ProgressCoordinator {
                 ? walkArrivalService.evaluate(itinerary, areq)
                 : transitArrivalService.evaluate(itinerary, areq);
 
+        // WALK 일 때는 현재 스텝 인덱스를 매번 TripState에 반영
         if (isWalk && ares.currentStepIndex() != null) {
             state.setStepIndex(ares.currentStepIndex());
         }
 
+        // 7-1) remainingMeters NaN/∞/음수 방어
         double remRaw = ares.remainingMeters();
         double remSafe;
+
         if (Double.isNaN(remRaw) || Double.isInfinite(remRaw) || remRaw < 0) {
             remSafe = 9999.0;
             log.warn("[PROGRESS] remainingMeters invalid. raw={}, tripId={}, legIdx={}", remRaw, tripId, state.getLegIndex());
@@ -232,12 +244,12 @@ public class ProgressCoordinator {
         Integer nextLeg = arrivedStable ? ares.nextLegIndex() : null;
         Integer nextStep = arrivedStable ? ares.nextStepIndex() : null;
 
-        // step 전이 (BUS/SUBWAY)
+        // step 인덱스 전이 (히스테리시스 이후) — 주로 대중교통용
         if (!isWalk && nextStep != null) {
             state.setStepIndex(nextStep);
         }
 
-        // leg 전이 (WALK -> BUS 대기 전환 로직 포함)
+        // leg 인덱스 전이
         if (nextLeg != null) {
             int bounded = Math.min(nextLeg, Math.max(0, itinerary.legs().size() - 1));
             state.setLegIndex(bounded);
@@ -254,67 +266,75 @@ public class ProgressCoordinator {
                 state.setPhase(TripState.PHASE_WALKING);
             }
 
+            // leg 가 바뀐 경우, 새 leg 의 초기 stepIndex 재계산
             Integer initStep = computeInitialStepIndex(meta, state.getItineraryIndex(), bounded);
             state.setStepIndex(initStep);
         }
 
         // --------------------------------------------------------------------------------------
-        // 8-1) 자동 탑승(ONBOARD) 감지 로직 (WAITING_TRANSIT -> ONBOARD)
+        // 8-1) [신규] 자동 탑승(ONBOARD) 감지 로직 (WAITING_TRANSIT -> ONBOARD)
         // --------------------------------------------------------------------------------------
         String currentPhase = state.getPhase();
         if (!isWalk && TripState.PHASE_WAITING_TRANSIT.equals(currentPhase)) {
 
-            // 1. 속도 체크 (3.0 m/s 이상)
+            // 1. 속도 체크: 3.0 m/s (약 10.8km/h) 이상이면 버스 출발로 간주
             boolean isMovingFast = (p.speedMps() != null && p.speedMps() > 3.0);
 
-            // 2. 정류장 이탈 체크 (30m 이상) - 여기서도 실시간 좌표(p.lat)를 사용하여 즉시 감지
+            // 2. 정류장 이탈 체크: 정류장과의 거리가 30m 이상 멀어졌는지?
             boolean isLeftStop = false;
             double distFromStart = 0.0;
 
             if (currentLeg.start() != null && currentLeg.start().lat() != null && currentLeg.start().lon() != null) {
-                double startLat = currentLeg.start().lat(); // 이미 Double
-                double startLon = currentLeg.start().lon(); // 이미 Double
+                // LegDto의 좌표는 이미 Double 타입
+                double startLat = currentLeg.start().lat();
+                double startLon = currentLeg.start().lon();
 
-                // 실시간 좌표 사용
+                // 반응성을 위해 실시간 좌표(p.lat) 사용
                 distFromStart = GeoUtils.haversine(p.lat(), p.lon(), startLat, startLon);
                 isLeftStop = (distFromStart > 30.0);
             }
 
-            // 3. 상태 전환
+            // 3. 탑승 조건 만족 시 상태 전환
             if (isMovingFast && isLeftStop) {
                 state.setPhase(TripState.PHASE_ONBOARD);
-                state.setArrivalStreak(0);
+                state.setArrivalStreak(0); // 탑승했으므로 도착 스트릭 초기화
                 log.info("[StateChange] 대기 종료 -> 탑승(ONBOARD) 자동 감지! (Speed: {}m/s, Distance: {}m)",
                         p.speedMps(), distFromStart);
             }
         }
+        // --------------------------------------------------------------------------------------
 
-        // [수정] 9) Phase 업데이트 로직 수정
+        // =====================================================================
+        // 9) [수정] Phase 업데이트 로직 (버그 수정됨)
+        // =====================================================================
 
-
-        // 🚨 중요: 위에서 legIndex가 변경되었을 수 있으므로, 현재 Leg 모드를 다시 확인해야 합니다.
+        // 1. 위 로직들을 거치며 legIndex가 변했을 수 있으므로, 현재 상태의 Leg 정보를 다시 가져옵니다.
         SkTransitRootDto.LegDto currentLegNow = itinerary.legs().get(state.getLegIndex());
         String currentMode = (currentLegNow.mode() != null) ? currentLegNow.mode() : "WALK";
-        boolean isWalkNow = "WALK".equals(currentMode); // 👈 변수명 변경 (isWalk -> isWalkNow)
+
+        // 2. '현재' 걷는 구간인지 확인합니다.
+        boolean isWalkNow = "WALK".equals(currentMode);
 
         if (isWalkNow) {
+            // 걷는 구간이면 확실하게 WALKING 상태
             state.setPhase(TripState.PHASE_WALKING);
         } else {
-            // 대중교통 구간임
+            // 대중교통(버스/지하철) 구간
             String phase = state.getPhase();
 
-            // 1. 상태가 비어있거나,
-            // 2. 대중교통 구간인데 'WALKING'으로 잘못 남아있는 경우 (이전 상태 잔재)
-            // -> 'ONBOARD'로 자동 보정
+            // (1) 상태가 비어있거나,
+            // (2) 대중교통 구간인데 'WALKING'으로 잘못 남아있는 경우 (이전 구간의 잔재)
+            // ==> 'ONBOARD'로 자동 보정
             if (phase == null || phase.isBlank() || TripState.PHASE_WALKING.equals(phase)) {
 
-                // 단, 방금 8번 로직에서 'WAITING_TRANSIT'으로 설정했다면 건드리지 않음!
+                // ⚠️ 단, 방금 8번 로직에서 'WAITING_TRANSIT'으로 설정했다면 건드리지 않아야 합니다.
                 if (!TripState.PHASE_WAITING_TRANSIT.equals(phase)) {
                     state.setPhase(TripState.PHASE_ONBOARD);
                 }
             }
-            // 그 외(WAITING_TRANSIT, TRANSFER 등)는 기존 값 유지
+            // 그 외(WAITING_TRANSIT, ONBOARD, TRANSFER 등)는 기존 값 유지
         }
+
         // 10) 최근 업링크 시각/좌표 업데이트
         long now = (p.timestampEpochMs() != null) ? p.timestampEpochMs() : System.currentTimeMillis();
         state.setLastLon(p.lon());
@@ -323,8 +343,58 @@ public class ProgressCoordinator {
 
         tripStore.save(tripId, state);
 
+        // =================================================================
+        // [신규] 실시간 도착 정보 조회 및 TTS 보강 로직 (WAITING_TRANSIT 일 때만)
+        // =================================================================
+        String additionalTts = "";
+
+        // 현재 상태가 '대기 중'인지 다시 확인 (9번 로직 이후 최종 상태 기준)
+        if (!isWalkNow && TripState.PHASE_WAITING_TRANSIT.equals(state.getPhase())) {
+
+            // 1. SK API에서 타야 할 버스 정보("간선:매월26")와 정류장 좌표 확인
+            String skRouteNameFull = (currentLegNow.route() != null) ? currentLegNow.route() : "";
+            // 파싱: "간선:매월26" -> "매월26"
+            String targetRouteNo = skRouteNameFull.contains(":")
+                    ? skRouteNameFull.substring(skRouteNameFull.indexOf(":") + 1)
+                    : skRouteNameFull;
+
+            Double startLat = (currentLegNow.start() != null) ? currentLegNow.start().lat() : null;
+            Double startLon = (currentLegNow.start() != null) ? currentLegNow.start().lon() : null;
+
+            if (startLat != null && startLon != null && !targetRouteNo.isBlank()) {
+                try {
+                    // 2. 좌표로 공공데이터 정류장 ID & CityCode 찾기 (Blocking 호출)
+                    PublicStationInfo stationInfo = busStationService.findNearestStation(startLat, startLon).block();
+
+                    if (stationInfo != null) {
+                        // 3. 정류장 ID + 노선명("매월26")으로 도착 정보 조회 (Blocking 호출)
+                        BusArrivalInfo arrivalInfo = realTimeBusService
+                                .getArrivalInfo(stationInfo.cityCode(), stationInfo.nodeId(), targetRouteNo)
+                                .block();
+
+                        if (arrivalInfo != null) {
+                            // 4. TTS 메시지 생성
+                            if (arrivalInfo.message() != null) {
+                                additionalTts = String.format(" 현재 %s 버스는 %s에 있습니다.", targetRouteNo, arrivalInfo.message());
+                            } else if (arrivalInfo.stopsLeft() != null) {
+                                additionalTts = String.format(" 현재 %s 버스는 %d정거장 전입니다.", targetRouteNo, arrivalInfo.stopsLeft());
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("실시간 버스 정보 조회 실패 (무시함): {}", e.getMessage());
+                }
+            }
+        }
+        // =================================================================
+
         // 11) 안내 문구 생성
         String tts = guidanceTextGenerator.from(ares, state, itinerary, currentLeg);
+
+        // ✅ 실시간 정보가 있으면 TTS 뒤에 붙여줌
+        if (!additionalTts.isBlank()) {
+            tts += additionalTts;
+        }
 
         return new GuidanceResponse(
                 tripId,

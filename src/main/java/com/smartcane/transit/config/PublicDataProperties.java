@@ -7,9 +7,10 @@ import org.springframework.context.annotation.Configuration;
 
 @Getter
 @Setter
-@Configuration // 👈 이렇게 하면 스프링이 자동으로 찾아서 빈으로 등록합니다.
+@Configuration
 @ConfigurationProperties(prefix = "public-data.bus")
 public class PublicDataProperties {
-    private String baseUrl;
-    private String serviceKey;
+    private String arrivalBaseUrl; // arrival-base-url 매핑
+    private String stationBaseUrl; // station-base-url 매핑
+    private String serviceKey;     // service-key 매핑
 }

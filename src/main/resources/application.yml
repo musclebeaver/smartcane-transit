@@ -15,7 +15,7 @@ spring:
     enabled: true
     locations: classpath:db/migration
   profiles:
-    active: redis  # 실서버에서는 redis 프로파일 사용
+    active: redis
   data:
     redis:
       host: your-redis-host
@@ -27,20 +27,25 @@ logging:
     org.springframework.web: INFO
     com.smartcane.transit: DEBUG
     org.springframework.web.reactive.function.client: DEBUG
+
 sk:
   transit:
-    base-url: https://apis.openapi.sk.com # 실제 엔드포인트 넣기
-    app-key: YEWVxfrK4j8xTNQZURJ4z1Te4JTZs26v45fgmfn7    # 환경변수/시크릿로 대체 권장
+    base-url: https://apis.openapi.sk.com
+    app-key: YEWVxfrK4j8xTNQZURJ4z1Te4JTZs26v45fgmfn7
 
 vworld:
   api:
     key: 689FD791-23B2-38BD-86E8-04B77A9B17AF
 
-
+# ✅ [수정됨] 공공데이터포털 설정 (도착정보 + 정류소정보)
 public-data:
   bus:
-    base-url: http://apis.data.go.kr/1613000/ArvlInfoInqireService
-    service-key: ${PUBLIC_DATA_KEY:your-decoding-key-here} # 환경변수 권장
+    # 1. 버스 도착 정보 조회 (ArvlInfoInqireService)
+    arrival-base-url: http://apis.data.go.kr/1613000/ArvlInfoInqireService
+    # 2. 버스 정류소 정보 조회 (BusSttnInfoInqireService)
+    station-base-url: http://apis.data.go.kr/1613000/BusSttnInfoInqireService
+    # 3. 서비스 키
+    service-key: ${PUBLIC_DATA_KEY}
 
 smartcane:
   transit:
