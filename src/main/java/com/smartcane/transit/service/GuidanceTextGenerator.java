@@ -103,11 +103,11 @@ public class GuidanceTextGenerator {
 
             if (isNewStep && stepDesc != null && !stepDesc.isBlank()) {
                 state.setLastSpokenStepIndex(stepIdx);
-                if (nextStepM != null) {
-                    return String.format("%s. 다음 안내까지 약 %d미터 남았습니다.", stepDesc, nextStepM);
-                } else {
-                    return String.format("%s. 안내된 경로를 따라 계속 이동해 주세요.", stepDesc);
-                }
+
+                // [수정] 설명(description)이 있으면 거리 안내는 생략하고 설명만 깔끔하게 출력!
+                // 기존: return String.format("%s. 다음 안내까지 약 %d미터 남았습니다.", stepDesc, nextStepM);
+
+                return stepDesc; // "보행자도로를 따라 57m 이동" 등으로 끝냄.
             }
             if (nextStepM != null) {
                 if (nextStepM <= 0) return "잠시 후 다음 안내가 있습니다. 속도를 줄이고 주변을 잘 살펴 주세요.";
@@ -142,9 +142,9 @@ public class GuidanceTextGenerator {
                 } else if (stopsLeft == 1) {
                     return segment + "다음 정류장에서 하차입니다. 이번 정류장을 지나면 하차 벨을 눌러주세요.";
                 } else if (stopsLeft <= 3) {
-                    return String.format("%s하차까지 %d정거장 남았습니다. 목적지가 가까워지고 있습니다.", segment, stopsLeft);
+                    return String.format("%s하차까지 %d정거장 남았습니다.", segment, stopsLeft);
                 } else {
-                    return String.format("%s하차까지 약 %d정거장 남았습니다. 편안히 이동해 주세요.", segment, stopsLeft);
+                    return String.format("%s하차까지 약 %d정거장 남았습니다.", segment, stopsLeft);
                 }
             }
 

@@ -52,7 +52,7 @@ smartcane:
     arriveRadiusWalkM: 15
     arriveRadiusTransitM: 30
     lookAheadWalkM: 25
-    geofenceOffRouteM: 28
+    geofenceOffRouteM: 30
     medianWindow: 3
     minSpeedMps: 0.3
     arrivalHysteresisN: 1

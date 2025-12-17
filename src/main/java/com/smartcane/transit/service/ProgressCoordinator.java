@@ -373,12 +373,31 @@ public class ProgressCoordinator {
                                 .block();
 
                         if (arrivalInfo != null) {
-                            // 4. TTS 메시지 생성
-                            if (arrivalInfo.message() != null) {
-                                additionalTts = String.format(" 현재 %s 버스는 %s에 있습니다.", targetRouteNo, arrivalInfo.message());
-                            } else if (arrivalInfo.stopsLeft() != null) {
-                                additionalTts = String.format(" 현재 %s 버스는 %d정거장 전입니다.", targetRouteNo, arrivalInfo.stopsLeft());
+                            // 4. TTS 메시지 생성 (시간 정보 포함 로직 추가)
+                            StringBuilder sb = new StringBuilder();
+                            sb.append(String.format(" 현재 %s 버스는", targetRouteNo));
+
+                            // (1) 남은 정거장 수 안내
+                            if (arrivalInfo.stopsLeft() != null) {
+                                sb.append(String.format(" %d정거장 전", arrivalInfo.stopsLeft()));
+                            } else if (arrivalInfo.message() != null) {
+                                // 정거장 수 정보가 없으면 '전전' 같은 메시지 사용
+                                sb.append(String.format(" %s 위치", arrivalInfo.message()));
                             }
+
+                            // (2) 남은 시간(분) 안내 - 핵심 추가 사항 ✨
+                            if (arrivalInfo.secondsLeft() != null) {
+                                int minutes = arrivalInfo.secondsLeft() / 60;
+                                if (minutes > 0) {
+                                    sb.append(String.format(", 약 %d분 후 도착합니다.", minutes));
+                                } else {
+                                    sb.append(", 곧 도착합니다.");
+                                }
+                            } else {
+                                sb.append("입니다.");
+                            }
+
+                            additionalTts = sb.toString();
                         }
                     }
                 } catch (Exception e) {

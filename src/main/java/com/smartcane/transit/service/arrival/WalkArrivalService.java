@@ -1,9 +1,11 @@
 package com.smartcane.transit.service.arrival;
 
+import com.smartcane.transit.config.GuidanceProperties;
 import com.smartcane.transit.dto.request.ArrivalCheckRequest;
 import com.smartcane.transit.dto.response.ArrivalCheckResponse;
 import com.smartcane.transit.dto.response.SkTransitRootDto;
 import com.smartcane.transit.util.GeoUtils;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -16,20 +18,21 @@ import java.util.List;
  * 1) 현재 위치에서 가장 가까운 step 인덱스(nearestStepIdx)를 찾는다.
  * 2) 그 step의 description을 currentInstruction 으로 내려준다.
  * 3) 다음 안내 지점까지 거리:
- *    - 아직 중간 step이면: 다음 step의 첫 좌표까지 거리
- *    - 마지막 step이면: leg.end 좌표까지 거리
- *    → "NEXT_STEP:123.45" 형식으로 nextInstruction 에 담는다.
+ * - 아직 중간 step이면: 다음 step의 첫 좌표까지 거리
+ * - 마지막 step이면: leg.end 좌표까지 거리
+ * → "NEXT_STEP:123.45" 형식으로 nextInstruction 에 담는다.
  * 4) remainingMeters 는 leg.end 까지 거리(목적지까지 거리)
  * 5) currentStepIndex 는 "현재 스냅된 step 인덱스"로 항상 세팅
- *    → ProgressCoordinator 가 TripState.stepIndex 를 매번 업데이트 가능
+ * → ProgressCoordinator 가 TripState.stepIndex 를 매번 업데이트 가능
  * 6) nextStepIndex 는 WALK 에서는 사용하지 않으므로 null 로 내려준다.
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor // ✅ 설정값(Properties) 주입을 위해 추가
 public class WalkArrivalService {
 
-    // 폴리라인에서 이 거리보다 멀어지면 경로 이탈로 간주 (m)
-    private static final double OFF_ROUTE_THRESHOLD_M = 20.0;
+    // ✅ 설정 파일에서 이탈 반경 값을 가져오기 위해 주입
+    private final GuidanceProperties props;
 
     private static <T> T safeGet(List<T> list, int idx) {
         if (list == null || idx < 0 || idx >= list.size()) return null;
@@ -89,7 +92,12 @@ public class WalkArrivalService {
         }
 
         boolean offRoute = false;
-        if (!Double.isInfinite(bestStepDist) && bestStepDist > OFF_ROUTE_THRESHOLD_M) {
+
+        // ✅ [수정] 하드코딩(20.0) 제거 -> 설정 파일 값(28.0) 사용
+        // application.yml의 smartcane.transit.geofenceOffRouteM 값을 가져옴
+        double threshold = props.getGeofenceOffRouteM();
+
+        if (!Double.isInfinite(bestStepDist) && bestStepDist > threshold) {
             offRoute = true;
         }
 
