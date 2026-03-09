@@ -3,6 +3,9 @@
 시각·이동 약자를 위한 **버스/지하철 경로 안내** 백엔드입니다.  
 혼합 경로 탐색(버스+지하철), 실시간 도착 정보, 승·하차 추정(센서 이벤트 기반)을 제공합니다.
 
+> 📄 **[프로젝트 요약 및 협업 가이드 (기획자/앱 개발자용)](PROJECT_SUMMARY.md)**  
+> *현재 개발 현황, 비즈니스 로직, 시스템 워크플로우 및 API 명세를 확인하실 수 있습니다.*
+
 > ✅ **Tech Stack**
 > - **Backend**: Spring Boot (Java 21), Spring MVC, Spring Data JPA, Spring Validation, (옵션) Spring Security  
 > - **Build/Tools**: Gradle, Docker  
